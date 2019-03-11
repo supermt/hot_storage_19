@@ -56,6 +56,7 @@
 \usepackage{tikz}
 \usepackage{amsmath}
 \usepackage{cite}
+\usepackage{tabularx}
 
 % inlined bib file
 \usepackage{filecontents}
@@ -127,22 +128,19 @@ For this \textit{Compaction} process will walk through all key-value pairs store
 
 \begin{figure}
 	\centering
-	\includegraphics[width=0.7\columnwidth]{fig/meta-chart}
-	\caption{This chart shows the sudden increasing disk usage while system fall into compaction.}
+	\includegraphics[width=0.9\columnwidth]{fig/compaction-2}
+	\caption{The ratio of time spent on encoding/decoding  }
 	\label{fig:disk_usage}
 \end{figure}
 
 \begin{itemize}
 	\item The first one is \textbf{scheduling},  bLSM\cite{sears2012blsm} proposed a ``Gear Scheduler'' to dispersion pressure caused by compaction. It inspired many following works and most of the work mentioned in this paper used bLSM's results as base line while discussing scheduling problems. 
-	\item 
-	The second one is \textbf{algorithm optimization}, the most successful and representative one is PebblesDB in 2017\cite{raju2017pebblesdb}, use ``Guard'' to avoid repeated writing entries into files, easing the pressure by reducing write amplification. There are also works focus on special workloads like LSM-trie\cite{wu2015lsm}. And this may be the most popular thoughts in practice, Facebook provides several different types of compaction in RocksDB\cite{Compacti60:online},\cite{dong2017optimizing} while Cassandra also changed many times for its compaction strategy\cite{Document20:online}.  
+	\item 	The second one is \textbf{algorithm optimization}, the most successful and representative one is PebblesDB in 2017\cite{raju2017pebblesdb}, use ``Guard'' to avoid repeated writing entries into files, easing the pressure by reducing write amplification. There are also works focus on special workloads like LSM-trie\cite{wu2015lsm}. And this may be the most popular thoughts in practice, Facebook provides several different types of compaction in RocksDB\cite{Compacti60:online},\cite{dong2017optimizing} while Cassandra also changed many times for its compaction strategy\cite{Document20:online}.  
 	\item The third one is about \textbf{takeing advantages of new storage materials}, for new materials has been developed lot recent years, how these new materials', like Open-Channel SSD\cite{bjorling2017lightnvm} and NVM, characteristics may benefit the LSM data structure becomes a attractive topic to develop. GearDB\cite{yao2019geardb} considered reorganizing the entries choosing strategy to cover the garbage collection on HM-SMR disks. FlashKV\cite{zhang2017flashkv} use Open-Channel SSDs to optimize the compaction process's write amplification, achieved higher GC-efficiency. Novelsm\cite{kannan2018redesigning} utilized the characteristics of NVM's byte-addressing to achieve in-place update while SLM-DB\cite{kaiyrakhmet2019slm} combined with persistent B-Tree to organize the files into one single level and use \textit{select-merging} to get better performance in compaction.
-	
 \end{itemize}
 
-\subsection{Chances and Challenges}
+\subsection{Opportunities and Challenges}
 Programming for NVM is very different from traditional memory or disk programming, this section describes several main challenges while combing the NVM with the LSM structures.
-
 \subsubsection{Space Amplification}
 Fundamentally, this problem is unavoidable for any log-based system as the trade off for update costs and point looking up costs. Some hardware devices like HM-SMR and Open-channel may provide raw disk control to the applications, make it is possible for application to cover this problem with device's own garbage collection process\cite{zhang2017flashkv}.
 
@@ -156,6 +154,19 @@ Fundamentally, this problem is unavoidable for any log-based system as the trade
 This problem can be the most typical shortage of LSM-based systems, PepplesDB\cite{raju2017pebblesdb} and RocksDB\cite{dong2017optimizing} tried to solve this problem by optimizing the write down process, while Novelsm\cite{kannan2018redesigning} applied in-place updates on NVM to reduce repeated writing and SLM-DB use persistent B-Tree to solve this problem.
 
 NVM's byte addressing ability allows more flexible data structure and operations; Its large capacity also benefits the buffer to store much more data, caching more operations before writing down to the sequential-based devices. This can reduce space amplification from the very origin purpose.
+
+
+%\subsection{The Problem of Write Pause}
+%Paper bLSM\cite{sears2012blsm} proposed the solution ``Gear Scheduling'' to solve the write pause problem, it also pointed out the origin reason of performance jitters is consuming too much calculating resources to keep the files in ordered manners. 
+%
+%Fig. \ref{fig:compaction-2}. is the disk usage overtime, it shows another very important reason of \textit{Write Pause}, due to the ``leveled'' compaction strategy of LevelDB, there will be a unavoidable chain reaction triggered by one single compaction which may fill up the entire level
+
+\subsubsection{Inherent Weakness of NVM}
+Although NVM has many advantages, its inherent weaknesses cause special care in designing the data structure on NVM. Ignoring these issues may not take advantage of NVM's high throughput, and even introduce more unexpected situations such as consistency problems and performance degradation.
+
+\paragraph{Wear Out Problem}
+
+\paragraph{Asymmetrical Read/Write Performance}
 
 \subsubsection{Consistency}
 
@@ -175,20 +186,53 @@ For it is non-volatile in the NVM, when the system is restored, the linked list 
 
 LSM system achieved buffering data inside memory to provide append-only writing strategy, and many of implementations use \textit{MemTable} as in-memory buffer and \textit{SST} (Sorted String Table) files to store Key-Value pairs in the file system. 
 
-Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will first find in the memory buffer (\textit{Memtable}), then access the version control to check which file contains the target key-value pair; After locating the file, it still needs use several iterator to transfer the file blocks to memory structure, and decode from pre-compression format to get the real value. 
+Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will find in the memory buffer (\textit{Memtable}) firstly, then access the version control to check which file contains the target key-value pair; After locating the file, it still needs several iterators to transfer the file blocks to memory structure, and decode from pre-compression format to get the real value. 
+\begin{table}[t]
+	\centering
+	\begin{tabular}{|l|c|c|c|c|c|}
+		\hline
+		\textbf{Operation} & Read & Write & Encode & Decode  \\ \hline
+		\textbf{Ratio} & 0.1\% & 3\% & 22\% & 5\%  \\ \hline
+	\end{tabular}
+	\caption{Execution time ratio during compaction process, from the result we can see \textbf{\textit{Encoding}} occupies most of the compaction time (almost $\dfrac{1}{4}$ of entire compaction process)}
+	\label{tab:file_read_ratio}
+\end{table}
 
+\textbf{Table. \ref{tab:file_read_ratio} shows a result that is not so common sense, the time spent on serialization and de-serialization take the most part of the system, much higher than the time spent on reading file blocks.}
+
+\section{Observation and Possible Solution}
+The challenge is to design a LSM-based system with only one single data structure which can serve both inside the memory space and persistent files. Traditional united format may suffer from low compression rate, high memory usage and low range query speed problems, to get rid of the serialization/de-serialization overhead, the key point is to find out a memory structure can also perform well in sequential writing situation. This section analyzes several design principles and interesting results from observations.
+
+\subsection{Benefits of Single Storage System}
+Nearly all of the LSM systems suffer from the common shortage of disk-based DB: the in-memory-abundant. Encoding/decoding, compression, value-addressing and memory management make LSM is relatively slow to apply the queries. Moreover, due to its index-free design, some implementations may bring more overhead while reading.
 \begin{figure}
 	\centering
-	\includegraphics[width=0.7\columnwidth]{fig/meta-chart}
-	\caption{This chart shows the ratio of time used on reading file block from disk during compaction.}
-	\label{fig:file_read_ratio}
+	\includegraphics[width=0.9\columnwidth]{fig/meta4}
+	\caption{The ratio of time spent on encoding/decoding}
+	\label{fig:entries_number}
 \end{figure}
 
-\textbf{Fig. \ref{fig:file_read_ratio} shows a result that is not so common sense, the time spent on serialization and de-serialization take the most part of the system, much higher than the time spent on reading file blocks.}
+This abundant increases with the number of key-value entries, the result of Fig. \ref{fig:entries_number}. comes the conclusion: With the increasing of key-value pairs 
 
-\section{Proposed Solution}
-The challenge is to design a LSM-based system with only one single data structure which can serve both inside the memory space and 
-\subsubsection{}
+
+\subsection{Memory System Concern}
+Table \ref{tab:memtable_requirment}. shows some design principles of the in-memory data structure and lists out the most popular design to fit each requirement\cite{MemTable29:online} (Alternative list: SkipList, HashSkipList, HashLinkList, Vector). The conclusion of this table points out the SkipList, which is the most popular data structure in typical LSM-based system, may be the best data structure to support in-memory and NVM data buffering. Moreover, Novelsm\cite{kannan2018redesigning} and SLM-DB\cite{kaiyrakhmet2019slm}, these two successful studies has already proved that persistent SkipList can perform well on the NVM material.
+\begin{table}
+	\centering
+	\begin{tabular}{|p{0.5\columnwidth}|p{0.3\columnwidth}|}
+		\hline
+		\textbf{Index Efficiency} & HashSkipList \\ \hline
+		\textbf{Full db Scanning Cost} & SkipList \\ \hline
+		\textbf{Memory Overhead} & Vectors \\ \hline
+		\textbf{MemTable Flush Efficiency} & SkipList \\ \hline
+		\textbf{Concurrent Insert} & SkipList \\ \hline
+		\textbf{Use Case University} & SkipList\\ \hline
+	\end{tabular}
+	\caption{Detailed requirements and most suitable structure for \textit{MemTable} designing}
+	\label{tab:memtable_requirment}
+\end{table}
+
+\subsection{ nn}
 
 
 %-------------------------------------------------------------------------------
