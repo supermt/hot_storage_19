@@ -91,6 +91,17 @@ City University of Hong Kong
 %-------------------------------------------------------------------------------
 Your abstract text goes here. Just a few facts. Whet our appetites.
 Not more than 200 words, if possible, and preferably closer to 150.
+Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.
+Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.
+Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.
+Your abstract text goes here. Just a few facts. Whet our appetites.
+Not more than 200 words, if possible, and preferably closer to 150.
 \end{abstract}
 
 
@@ -98,11 +109,12 @@ Not more than 200 words, if possible, and preferably closer to 150.
 \section{Introduction}
 %-------------------------------------------------------------------------------
 
-LSM Tree is a high warm writing performance data structure proposed in 1996\cite{o1996log}, gets widely used in many products like  Cassandra\cite{ApacheCa22:online}, Hbase\cite{ApacheHB26:online}, BigTable\cite{chang2008bigtable} and WiredTiger\cite{WiredTig38:online}. LSM uses incremental changes to optimize write throughput, converts random write operations into sequential accessing. But this introduces extra overheads in space cost and garbage collection. 
+LSM Tree is a high warm writing performance data structure proposed in 1996\cite{o1996log}, gets widely used in many products like  Cassandra\cite{ApacheCa22:online}, Hbase\cite{ApacheHB26:online}, BigTable\cite{chang2008bigtable} and WiredTiger\cite{WiredTig38:online}. LSM uses incremental changes to optimize write throughput, converts random write operations into sequential accessing. But this introduces extra overheads in space cost and garbage collection. Moreover, when system's persistent component (the stored files) grows larger and larger, the query performance becomes relatively low, repeated records haven't been update in-time will remain in files will lead to further waste of storage space. The additional collection operations (also known as Compaction) applied on these data will introduce further space amplification. Many studies have been researched to improve this problem\cite{dayan2017monkey,dayan2018dostoevsky,kaiyrakhmet2019slm,kannan2018redesigning,raju2017pebblesdb,wu2015lsm,sears2012blsm} since many years ago.
 
-NVM (non-volatile memory) represents the storage materials with byte-addressability, persistent and high random access throughput. These materials such as PCM (phase change memory), MRAM (Magnetoresistive RAM) can provide fast random access on persistent data, improving throughout and reduce failure-recovery. 
+NVM (non-volatile memory) represents the storage materials with byte-addressability, persistent and high random access throughput. These materials such as PCM (phase change memory), MRAM (Magnetoresistive RAM) can provide fast random access on persistent data, improving throughout and reduce failure-recovery. Novelsm\cite{kannan2018redesigning} and SlM-DB\cite{kaiyrakhmet2019slm} provided some successful solutions to improve throughput and control the space amplification, there is still more space to explore: (1) NVM material still suffers the wear out problem, though 3d x-point materials durability is much better than NAND flash devices, simply applying random and piecemeal operations upon NVM is not that wise; (2) the conversion gap between stored files and in-memory data structures can be eliminated further to optimize the throughput for both read and write operations; (3) in-place updates can reduce the frequency of compaction, but it is hard to accelerate this process, by redesigning the data structure on NVM, these new materials can benefit more than simply use their performance advantages.
 
-%This can make full use of the system's read and write performance while introduces additional overheads for both storage and software-level layouts. The first problem is write amplification, 
+Our design is based on the opportunities mentioned above, in this work, we first evaluate the ratio of time spent on different processes during compaction. To our surprise, nearly $\frac{1}{4}$ of time was spent on converting data from file blocks to memory processable format, which is 10 times larger than the time spent on reading these data blocks. To save the overhead of data serialization and de-serialization, this work proposes a united format fits in all cases by modifying a fixed 64 bits field. This modification can accelerate the entire compaction process from the very original purpose: to speed up the data accessing. In addition to this, the benefits of organizing data in a more solid format can achieve better compression rate due to the values are logical continuous in reality cases. We implement a prototype and evaluate it with in a environment equipping a DRAM-emulating NVM and gain 20\% speed up. We are trying to improve the system further to ease the write pause problem brought by Compaction.
+
 
 \section{Background}
 This section provides the background of NVM materials and traditional designs of LSM, introduces the basic features and usage of them, and analyzes the opportunities and challenges while combing these techniques by reviewing several prior works.
@@ -202,7 +214,7 @@ Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get}
 	\label{tab:file_read_ratio}
 \end{table}
 
-Table. \ref{tab:file_read_ratio}. shows the time ratio of different operations, from the result we can see \textbf{\textit{Encoding}} cost the most (almost $\dfrac{1}{4}$ of entire compaction process). In addition, due to the restart placeholder added by the preamble compression groups, the performance of SST files operations performed on NVM will introduce much more overhead than expect, even worse, offsets the advantages of NVM's high-performance read and write.
+Table. \ref{tab:file_read_ratio}. shows the time ratio of different operations, from the result we can see \textbf{\textit{Encoding}} cost the most (almost $\frac{1}{4}$ of entire compaction process). In addition, due to the restart placeholder added by the preamble compression groups, the performance of SST files operations performed on NVM will introduce much more overhead than expect, even worse, offsets the advantages of NVM's high-performance read and write.
 
 \section{Preliminary Proposal}
 The challenge is to design a LSM-based system with only one single data structure which can serve both inside the memory space and persistent files. Typical united format may suffer from low compression rate, high memory usage and low range query speed problems, to get rid of the serialization/de-serialization overhead, the key point is to find out a memory structure can also perform well in sequential writing situation. This section analyzes several design principles and interesting results from observations.
@@ -257,7 +269,6 @@ Another component can benefit both in NVM and disk-based storage is the separate
 \section{Evaluation}
 
 \paragraph{workload setting and environment configuration} We use persistent memory workload generate from micro benchmark, provide random filling, sequential filling tests. The platform that collected the results employs one CPU (Intel i7-7700, 3.4GHz), and 24GB main memory, 8GB among this memory is used to emulate the NVM as in former studies\cite{kannan2018redesigning,kaiyrakhmet2019slm} . For the machine, Ubuntu 18.04 LTS with Linux kernel version 4.15 is used. 
-
 
 \begin{figure}
 	\centering
