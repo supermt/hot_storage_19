@@ -268,16 +268,11 @@ Another component can benefit both in NVM and disk-based storage is the separate
 
 \section{Evaluation}
 
-\paragraph{workload setting and environment configuration} We use persistent memory workload generate from micro benchmark, provide random filling, sequential filling tests. The platform that collected the results employs one CPU (Intel i7-7700, 3.4GHz), and 24GB main memory, 8GB among this memory is used to emulate the NVM as in former studies\cite{kannan2018redesigning,kaiyrakhmet2019slm} . For the machine, Ubuntu 18.04 LTS with Linux kernel version 4.15 is used. 
-
-\begin{figure}
-	\centering
-	\includegraphics[width=0.7\columnwidth]{fig/meta2}
-	\caption{The introduce of space amplification, the different reasons' ratio in entire result, point out most of the amplification problem is caused by the Compaction}
-	\label{fig:space_amplification}
-\end{figure}
+\paragraph{workload setting and environment configuration} We use persistent memory workload generate from micro benchmark, provide sequential filling and random filling tests. The platform that collected the results employs one CPU (8 cores, Intel i7-7700HQ, 2.80GHz) with CPUCache size of 6144 KB. It also contains 24GB DDR4 main memory, 8GB among this is used to emulate the NVM as in former studies\cite{kannan2018redesigning,kaiyrakhmet2019slm} . For the machine, Ubuntu 18.04 LTS with Linux kernel version 4.15 is used. 
 
 \paragraph{Result Analysis} Here goes the result analysis
+
+
 
 \section{Conclusion and Work-in-progress}
 From this prototype of implementation we provide a united format for DRAM, NVM and disk storage, this united format can save the cost of serialization and de-serialization, improve the total performance against original SST files, benefit more among NVM's high throughput read and write features. But there are still many improvements we are working on.
