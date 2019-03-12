@@ -141,6 +141,7 @@ For this \textit{Compaction} process will walk through all key-value pairs store
 
 \subsection{Opportunities and Challenges}
 Programming for NVM is very different from traditional memory or disk programming, this section describes several main challenges while combing the NVM with the LSM structures.
+
 \subsubsection{Space Amplification}
 Fundamentally, this problem is unavoidable for any log-based system as the trade off for update costs and point looking up costs. Some hardware devices like HM-SMR and Open-channel may provide raw disk control to the applications, make it is possible for application to cover this problem with device's own garbage collection process\cite{zhang2017flashkv}.
 
@@ -151,9 +152,7 @@ Fundamentally, this problem is unavoidable for any log-based system as the trade
 	\label{fig:space_amplification}
 \end{figure}
 
-This problem can be the most typical shortage of LSM-based systems, PepplesDB\cite{raju2017pebblesdb} and RocksDB\cite{dong2017optimizing} tried to solve this problem by optimizing the write down process, while Novelsm\cite{kannan2018redesigning} applied in-place updates on NVM to reduce repeated writing and SLM-DB use persistent B-Tree to solve this problem.
-
-NVM's byte addressing ability allows more flexible data structure and operations; Its large capacity also benefits the buffer to store much more data, caching more operations before writing down to the sequential-based devices. This can reduce space amplification from the very origin purpose.
+This problem can be the most typical shortage of LSM-based systems, but NVM's high throughput of byte-addressing random operations can somehow solve the problem to some extent. NVM's byte addressing ability allows more flexible data structure and operations; Its large capacity also benefits the buffer to store much more data, caching more operations before writing down to the sequential-based devices. This can reduce space amplification from the very origin purpose. Novelsm\cite{kannan2018redesigning} applied in-place updates on NVM to reduce repeated writing and SLM-DB use persistent B-Tree to solve this problem.
 
 
 %\subsection{The Problem of Write Pause}
@@ -162,15 +161,17 @@ NVM's byte addressing ability allows more flexible data structure and operations
 %Fig. \ref{fig:compaction-2}. is the disk usage overtime, it shows another very important reason of \textit{Write Pause}, due to the ``leveled'' compaction strategy of LevelDB, there will be a unavoidable chain reaction triggered by one single compaction which may fill up the entire level
 
 \subsubsection{Inherent Weakness of NVM}
-Although NVM has many advantages, its inherent weaknesses cause special care in designing the data structure on NVM. Ignoring these issues may not take advantage of NVM's high throughput, and even introduce more unexpected situations such as consistency problems and performance degradation.
+Although NVM has many advantages, its inherent weaknesses cause special care in designing the data structure on NVM. Ignoring these issues may not take advantage of NVM's high throughput, and even introduce more unexpected situations or performance degradation.
 
 \paragraph{Wear Out Problem}
+Though is much better than traditional NAND flash devices, the limited lifetime of NVM still forces developers to consider wear out issues when designing data structures and underlying system layout\cite{dulloor2014system,van2018managing}. This means data structure with heavily update requirements like hash-table need additional operations to organize data, brings extra overheads for the system. 
 
 \paragraph{Asymmetrical Read/Write Performance}
+Another challenge brought by NVM is its asymmetrical Read and Write performance\cite{wu2017early}. Read speed can be two to three orders of magnitude faster than write speed, this feature makes NVM more adaptable to read-intensive tasks, and need optimized batch when dealing with write-intensive tasks.
 
 \subsubsection{Consistency}
 
-the most important is the consistency problem. For example, consider about the situation of double-linked table insert operation, while the following code executes to the second line and meets a sudden power failure.
+NVM's non volatile feature also brings the consistency problem. For example, consider about the situation of double-linked table insert operation, while the following code executes to the second line and meets a sudden power failure.
 \begin{verbatim}
 void list_add_tail(struct cds_list_head *newp,
 struct cds_list_head *head) {
@@ -180,13 +181,13 @@ struct cds_list_head *head) {
 	head->prev = newp;
 }
 \end{verbatim}
-For it is non-volatile in the NVM, when the system is restored, the linked list is in an abnormal state caused by the CPU Cache and the out-of-order execution of CPU. This means NVM requires a specified \textit{transaction programming} model\cite{dulloor2014system,ren2015thynvm} to ensure the semantics of atomic operations are achieved, which means there is no intermediate state generated during the system is restoring, this results in the extra memory fence and cache flush operations to keep consistency. Moreover, to provide consistent writing on data blocks larger than limited size (8 bytes in typical situations), logging and C-o-W (Copy on Write) is needed.
+For the code execution is non-volatile in the NVM, when the system is restoring after a sudden power failure, the linked list is in an abnormal state caused by the CPU cache and the out-of-order execution of CPU. This means NVM requires a specified \textit{transaction programming} model\cite{volos2011mnemosyne,dulloor2014system,ren2015thynvm,188438} to ensure the semantics of atomic operations are achieved, which means there is no intermediate state generated during the system is restoring, this results in the extra memory fence and cache flush operations to keep consistency. Moreover, to provide consistent writing on data blocks larger than limited size (8 bytes in typical situations), logging and C-o-W (Copy on Write) is needed. Fortunately, persistent B+Tree\cite{188438,oukid2016fptree} was once a very popular topic, and has been greatly developed since many years ago, providing many successful cases for us to reference.
 
 \subsubsection{Frequent serialization and de-serialization}
 
 LSM system achieved buffering data inside memory to provide append-only writing strategy, and many of implementations use \textit{MemTable} as in-memory buffer and \textit{SST} (Sorted String Table) files to store Key-Value pairs in the file system. 
 
-Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will find in the memory buffer (\textit{Memtable}) firstly, then access the version control to check which file contains the target key-value pair; After locating the file, it still needs several iterators to transfer the file blocks to memory structure, and decode from pre-compression format to get the real value. 
+Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will find in the memory buffer (\textit{Memtable}) firstly, then access the version control to check which file contains the target key-value pair; After locating the file, it still needs several iterators to transfer the file blocks to memory structure, and decode from preamble compression format to get the real value. 
 \begin{table}[t]
 	\centering
 	\begin{tabular}{|l|c|c|c|c|c|}
@@ -194,14 +195,15 @@ Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get}
 		\textbf{Operation} & Read & Write & Encode & Decode  \\ \hline
 		\textbf{Ratio} & 0.1\% & 3\% & 22\% & 5\%  \\ \hline
 	\end{tabular}
-	\caption{Execution time ratio during compaction process, from the result we can see \textbf{\textit{Encoding}} occupies most of the compaction time (almost $\dfrac{1}{4}$ of entire compaction process)}
+	\caption{Execution time ratio during compaction process, \textbf{read} means reading file blocks from disks; \textbf{Write} means writing blocks to disks; \textbf{Encode} means transfer key-value entries to the block format, mainly a 
+		preamble compression of adjacent keys, while \textbf{Decode} means the process transfer blocks back into iterator's buffer and table cache.}
 	\label{tab:file_read_ratio}
 \end{table}
 
-\textbf{Table. \ref{tab:file_read_ratio} shows a result that is not so common sense, the time spent on serialization and de-serialization take the most part of the system, much higher than the time spent on reading file blocks.}
+Table. \ref{tab:file_read_ratio}. shows the time ratio of different operations, from the result we can see \textbf{\textit{Encoding}} cost the most (almost $\dfrac{1}{4}$ of entire compaction process). In addition, due to the restart placeholder added by the preamble compression groups, the performance of SST files operations performed on NVM will introduce much more overhead than expect, even worse, offsets the advantages of NVM's high-performance read and write.
 
-\section{Observation and Possible Solution}
-The challenge is to design a LSM-based system with only one single data structure which can serve both inside the memory space and persistent files. Traditional united format may suffer from low compression rate, high memory usage and low range query speed problems, to get rid of the serialization/de-serialization overhead, the key point is to find out a memory structure can also perform well in sequential writing situation. This section analyzes several design principles and interesting results from observations.
+\section{Preliminary results and Experiments}
+The challenge is to design a LSM-based system with only one single data structure which can serve both inside the memory space and persistent files. Typical united format may suffer from low compression rate, high memory usage and low range query speed problems, to get rid of the serialization/de-serialization overhead, the key point is to find out a memory structure can also perform well in sequential writing situation. This section analyzes several design principles and interesting results from observations.
 
 \subsection{Benefits of Single Storage System}
 Nearly all of the LSM systems suffer from the common shortage of disk-based DB: the in-memory-abundant. Encoding/decoding, compression, value-addressing and memory management make LSM is relatively slow to apply the queries. Moreover, due to its index-free design, some implementations may bring more overhead while reading.
