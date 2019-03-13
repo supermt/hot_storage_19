@@ -76,17 +76,13 @@
 \date{}
 
 % make title bold and 14 pt font (Latex default is non-bold, 16 pt)
-\title{\Large \bf Reduce Performance Impact of Compaction Process by Designing a Global Format for LSM}
+\title{\Large \bf Minimizing Compaction Impact via Unified Data Format for LSM}
 
 %for single author (just remove % characters)
 \author{
-{\rm Jinghuan YU}\\
-City University of Hong Kong
-\and
-{\rm Chun Jason. Xue}\\
-City University of Hong Kong
+	{\rm  Jinghuan YU, Xuan Sun, Chun Jason Xue, Cheng Ji}\\
+	Department of Computer Science, City University of Hong Kong\\
 } % end author
-
 \maketitle
 
 %-------------------------------------------------------------------------------
@@ -154,10 +150,10 @@ For this \textit{Compaction} process will walk through all key-value pairs store
 Programming for NVM is very different from traditional memory or disk programming. This section describes several main challenges while combing the NVM with the LSM structures.
 
 
-\subsubsection{Space Amplification}
-Fundamentally, this problem is unavoidable for any log-based system as the trade-off for update costs and point looking up costs. Some hardware devices like HM-SMR and Open-channel may provide raw disk control to the applications, make it is possible for an application to cover this problem with the device's garbage collection process\cite{zhang2017flashkv}.
+\paragraph{Space Amplification}
+%Fundamentally, this problem is unavoidable for any log-based system as the trade-off for update costs and point looking up costs. Some hardware devices like HM-SMR and Open-channel may provide raw disk control to the applications, make it is possible for an application to cover this problem with the device's garbage collection process\cite{zhang2017flashkv}.
 
-Space amplification problem can be the most common shortage of LSM-based systems, but NVM's high throughput of byte-addressing random operations can somehow solve the problem to some extent. NVM's byte addressing ability allows more flexible data structure and operations; Its large capacity also benefits the buffer to store much more data, caching more operations before writing down to the sequential-based devices. From this point of view, the in-place update strategy can reduce space amplification from the very origin purpose. Novelsm\cite{kannan2018redesigning} applied in-place updates on NVM to reduce repeated writing and SLM-DB use persistent B-Tree to solve this problem.
+Space amplification problem can be the most common shortage of LSM-based systems, but NVM's high throughput of byte-addressing random operations can solve the problem to some extent. NVM's byte addressing ability allows more flexible data structure and operations; Its large capacity also benefits the buffer to store much more data, caching more operations before writing down to the sequential-based devices. From this point of view, the in-place update strategy can reduce space amplification from the very origin purpose. In addition to eliminating WAL(write-ahead-logging), Novelsm\cite{kannan2018redesigning} applied in-place updates on NVM to reduce repeated writing and SLM-DB use persistent B-Tree to solve this problem.
 
 
 %\subsection{The Problem of Write Pause}
@@ -165,44 +161,30 @@ Space amplification problem can be the most common shortage of LSM-based systems
 %
 %Fig. \ref{fig:compaction-2}. is the disk usage overtime, it shows another very important reason of \textit{Write Pause}, due to the ``leveled'' compaction strategy of LevelDB, there will be a unavoidable chain reaction triggered by one single compaction which may fill up the entire level
 
-\subsubsection{Inherent Weakness of NVM}
+\paragraph{Inherent Weakness of NVM}
 Although NVM has many advantages, its inherent weaknesses cause special care in designing the data structure on NVM. Ignoring these issues may not take advantage of NVM's high throughput, and even introduce more unexpected situations or performance degradation.
 
-\paragraph{Wear Out Problem}
-Though it is much better than traditional NAND flash devices, the limited lifetime of NVM still forces developers to consider wear out issues when designing data structures and underlying system layout\cite{dulloor2014system,van2018managing}. Introducing lifetime consideration means data structures with massively update requirements need additional operations to organize data, brings extra overheads for the system. 
+\textbf{Wear Out Problem:} Though it is much better than traditional NAND flash devices, the limited lifetime of NVM still forces developers to consider wear out issues when designing data structures and underlying system layout\cite{dulloor2014system,van2018managing}. Introducing lifetime consideration means data structures with massively update requirements need additional operations to organize data, brings extra overheads for the system. 
 
-\paragraph{Asymmetrical Read/Write Performance}
-Another challenge brought by NVM is its asymmetrical Read and Write performance\cite{wu2017early}. Read speed can be two to three orders of magnitude faster than write speed; this feature makes NVM more adaptable to read-intensive tasks, and need optimized batch when dealing with write-intensive tasks.
+\textbf{Asymmetrical Read/Write Performance:} Another challenge brought by NVM is its asymmetrical Read and Write performance\cite{wu2017early}. Read speed can be two to three orders of magnitude faster than write speed; this feature makes NVM more adaptable to read-intensive tasks, and need optimized batch when dealing with write-intensive tasks.
 
 
-\subsubsection{Consistency}\label{sec:8bytes-law}
+\textbf{Consistency:}\label{sec:8bytes-law} NVM's non-volatile feature also brings consistency problems. Data structure may result in abnormal state while flush into different storage hierarchy caused by the CPU cache and the out-of-order execution of CPU. The uncertain status of data structures means NVM requires a specified \textit{transaction programming} model\cite{volos2011mnemosyne,dulloor2014system,ren2015thynvm,188438} to ensure the semantics of atomic operations are achieved. Moreover, to provide consistent writing on data blocks larger than limited size (8 bytes in typical situations), logging and C-o-W (Copy on Write) is needed, which means it should consider about the alignments for data structures. Fortunately, persistent B+Tree\cite{188438,oukid2016fptree} was once a popular topic and has been fully developed since many years ago, providing many successful cases for us to reference.
+%this results in the extra memory fence and cache flush operations to keep consistency.
 
-NVM's non-volatile feature also brings consistency problems. For example, consider the situation of a double-linked table insert operation, while the following code executes to the second line and meets a sudden power failure.
-\begin{verbatim}
-void list_add_tail(struct cds_list_head *newp,
-struct cds_list_head *head) {
-	head->prev->next = newp;
-	newp->next = head;
-	newp->prev = head->prev;
-	head->prev = newp;
-}
-\end{verbatim}
-For the code execution is non-volatile in the NVM, when the system is restoring after a sudden power failure, the linked list is in an abnormal state caused by the CPU cache and the out-of-order execution of CPU. The uncertain status of the linked list means NVM requires a specified \textit{transaction programming} model\cite{volos2011mnemosyne,dulloor2014system,ren2015thynvm,188438} to ensure the semantics of atomic operations are achieved, which means there is no intermediate state generated during the system is restoring, this results in the extra memory fence and cache flush operations to keep consistency. Moreover, to provide consistent writing on data blocks larger than limited size (8 bytes in typical situations), logging and C-o-W (Copy on Write) is needed. Fortunately, persistent B+Tree\cite{188438,oukid2016fptree} was once a popular topic and has been fully developed since many years ago, providing many successful cases for us to reference.
+\paragraph{Frequent serialization and de-serialization} LSM system achieved buffering data inside memory to provide append-only writing strategy, and many of implementations use \textit{MemTable} as an in-memory buffer and \textit{SST} (Sorted String Table) files to store Key-Value pairs in the file system. 
 
-\subsubsection{Frequent serialization and de-serialization}
-LSM system achieved buffering data inside memory to provide append-only writing strategy, and many of implementations use \textit{MemTable} as an in-memory buffer and \textit{SST} (Sorted String Table) files to store Key-Value pairs in the file system. 
-
-Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will find in the memory buffer (\textit{Memtable}) firstly, then access the version control to check which file contains the target key-value pair; After locating the file, it still needs several iterators to transfer the file blocks to memory structure, and decode from preamble compression format to get the real value.
+%Use LevelDB\cite{LevelDBo44:online} as an example, while applying a \textit{Get} operation, LevelDB will find in the memory buffer (\textit{Memtable}) firstly, then access the version control to check which file contains the target key-value pair; After locating the file, it still needs several iterators to transfer the file blocks to memory structure, and decode from preamble compression format to get the real value.
  
 \begin{table}[t]
 	\centering
 	\begin{tabular}{|l|c|c|c|c|c|}
 		\hline
 		\textbf{Operation} & Read & Write & Encode & Decode  \\ \hline
-		\textbf{Ratio} & 0.7\% & 6.5\% & 22\% & 5\%  \\ \hline
+		\textbf{Ratio (extreme)} & 0.7\% & 6\% & 22\% & 5\%  \\ \hline
+		\textbf{Ratio (average)} & 0.1\% & 5\% & 14\% & 3\%  \\ \hline
 	\end{tabular}
-	\caption{Execution time ratio during compaction process, \textbf{read} means reading file blocks from disks; \textbf{Write} means writing blocks to disks; \textbf{Encode} means transfer key-value entries to the block format, mainly a 
-		preamble compression of adjacent keys, also include variable integer encoding process etc. ; \textbf{Decode} means the process transfer blocks back into iterator's buffer and table cache.}
+	\caption{Execution time ratio during compaction process, the second row shows a extreme case among the experiments, and the third rows shows the average value of experiment results. For different components shown in first row, \textbf{Read} means reading file blocks from disks; \textbf{Write} means writing blocks to disks; \textbf{Encode} means transfer key-value entries to the block format, mainly consists of a preamble compression for adjacent keys and variable integer encoding process etc. ; \textbf{Decode} means the process transfer blocks back into iterator's buffer and table cache.}
 	\label{tab:file_read_ratio}
 \end{table}
 
@@ -213,7 +195,7 @@ The challenge is to design an LSM-based system with only one single data structu
 
 This section introduces the abundant of applying SST files on NVM system, combining with design principles, proposes a highly aggregated, 8-byte aligned and self-indexed format adapted to all storage environments.
 
-\subsection{Abundant of SST on NVM}
+\paragraph{Abundant of SST on NVM}
 Nearly all of the LSM systems suffer from the same shortage of disk-based DB\cite{sauer2018fineline}: the in-memory-abundant. Encoding/decoding, compression, value-addressing, and memory management make LSM relatively slow to apply the queries. Fig. \ref{fig:sstblock} shows the original format of Value Blocks in LevelDB.
 
 \begin{figure}
@@ -222,10 +204,11 @@ Nearly all of the LSM systems suffer from the same shortage of disk-based DB\cit
 	\caption{Original SST file block, this the format of value blocks, keys inside one same block use preamble compression to reduce space overhead.}
 	\label{fig:sstblock}
 \end{figure}
-Though preamble compressed keys can store in less space, the de-serialization overhead is relatively high. Moreover, in a byte-addressing memory system needs an alignment, storing an entry all together is not that efficiency, and the most important is: separated value columns become harder to take advantages of the high compression ratio feature of column-based format.
+
+Though preamble compressed keys cost less space, the de-serialization overhead is relatively high. Moreover, in a byte-addressing memory system needs an alignment, storing an entry all together is not that efficiency, and the most important is: separated value columns become harder to take advantages of the high compression ratio feature of column-based format.
 
 
-\subsection{Memory Component Concern}
+\paragraph{Memory Component Concern}
 Table \ref{tab:memtable_requirment}. shows some design principles of the in-memory data structure and lists out the most popular design to fit each requirement\cite{MemTable29:online} (Alternative list: SkipList, HashSkipList, HashLinkList, Vector). The conclusion of this table points out the SkipList, which is the most popular data structure in typical LSM-based system, may be the best data structure to support in-memory and NVM data buffering. Moreover, Novelsm\cite{kannan2018redesigning} and SLM-DB\cite{kaiyrakhmet2019slm}, these two successful studies have already proved that persistent SkipList can perform well on the NVM material.
 \begin{table}
 	\centering
@@ -242,7 +225,7 @@ Table \ref{tab:memtable_requirment}. shows some design principles of the in-memo
 	\label{tab:memtable_requirment}
 \end{table}
 
-\begin{figure}
+\begin{figure}[t]
 	\centering
 	\includegraphics[width=0.9\columnwidth]{fig/KeySet}
 	\caption{KeySet format, the united format works for DRAM, NVM and storage devices. For concurrency concern mentioned in section \ref{sec:8bytes-law}, use 8byte as the basic alignment unit for NVM. The index is a flexible field, can convert among different addressing information for all system.}
@@ -261,6 +244,19 @@ Table \ref{tab:memtable_requirment}. shows some design principles of the in-memo
 	\caption{Time used for different processing part, this should be the baseline for normalizations in the experiment}
 	\label{tab:time}
 \end{table*}
+
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{fig/Time_cost_WE}
+	\caption{The absolute value of Writing and Encoding costs}
+	\label{fig:timecostwe}
+\end{figure}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{fig/Time_cost_rest}
+	\caption{A more intuitive representation of overall execution time}
+	\label{fig:timecostrest}
+\end{figure}
 
 \begin{figure*}
 	\label{fig:we_values}
@@ -287,43 +283,41 @@ Table \ref{tab:memtable_requirment}. shows some design principles of the in-memo
 	\caption{These three figures shows the results of the ratio of Writing Time / Encoding Time. The ordinate in the figures is the specific proportional value while the abscissa represents the process of sampling time.}
 \end{figure*}
 
-\subsection{KeySet Block Files}\label{sec:format_introduction}
-Fig. \ref{fig:keyset}. shows the new data structure based on SkipList and SST files. For each block it contains two components: Key Set and Value Buffer. 
 
-The \textbf{index field} is the key point to adapting different storing requirements. This index is a fixed length (8 bytes) filed, which can fit all addressing methods. In the DRAM, it is the pointer of its value slice; when persisted into NVM files, it can be the offset information inside target block;And for the files on disk-based storage, this filed will represent a fixed 64 bits value to record an entry's value length.
+\paragraph{KeySet Block Files}\label{sec:format_introduction}
 
+Fig. \ref{fig:keyset}. shows the new data structure based on SkipList and SST files. For each block, it contains two components: Key Set and Value Buffer. 
+The \textbf{index field} is the crucial point to adapting different storing requirements. This index is a fixed length (8 bytes) filed, which can fit all addressing methods. In the DRAM, it is the pointer of its value slice; when persisted into NVM files, it can be the offset information inside target block; And for the files on disk-based storage, this field will represent a fixed 64 bits value to record an entry'sA value length.
 
-Another component can benefit both in NVM and disk-based storage is the separated value buffer. These data blocks are raw data need no conversion. Though these data can be separated inside DRAM due to dynamic allocation mechanism, the \textbf{Flush} or (\textbf{Memtable Compaction} in other name) can aggregate these data together, become a raw and solid data. In addition, just like the column-based storage engines, gathering value data can gain better compression ratio, for the values are logically continuous.
+Another component benefits both in NVM, and disk-based storage is the separated value buffer. These data blocks are raw data need no conversion. Though these data can be separated inside DRAM due to dynamic allocation mechanism, the \textbf{Flush} or (\textbf{Memtable Compaction} in another name) can aggregate these data together, become a raw and solid data. In addition, just like the column-based storage engines, gathering value data can gain better compression ratio, for the values are logically continuous.
 
 \section{Evaluation}
 
+
 \subsection{Workload and Environment Setting}
 
-We use persistent memory workload generated from micro benchmark, perform 100000 operations of the following orders: ``fillseq'', ``fillsync'', ``fillrandom'', ``overwrite'', ``readrandom'', ``readseq'', ``readrandom'', ``readseq'', the key size is 16 bytes and value size is 100 bytes by default. The platform that this experiment performed employs one CPU (8 cores, Intel i7-7700HQ, 2.80GHz) with CPUCache size of 6144 KB. It also contains 24GB DDR4 main memory, and use 8GB of DRAM to emulate the NVM as proposed in former studies\cite{kannan2018redesigning,kaiyrakhmet2019slm} . For the machine, Ubuntu 18.04 LTS with Linux kernel version 4.15 is used.
+We use persistent memory workload generated from micro benchmark, perform 100000 operations of the following orders: ``fillseq'', ``fillsync'', ``fillrandom'', ``overwrite'', ``readrandom'', ``readseq'', ``readrandom'', ``readseq'', the key size is 16 bytes and value size is 100 bytes by default. The platform that this experiment performed employs one CPU (8 cores, Intel i7-7700HQ, 2.80GHz) with CPUCache size of 6144 KB. It also contains 24GB DDR4 main memory, and use 8GB of DRAM to emulate the NVM as proposed in former studies\cite{kannan2018redesigning,kaiyrakhmet2019slm}. For the machine, Ubuntu 18.04 LTS with Linux kernel version 4.15 is used.
 
 \subsection{Result Analysis} 
-For this is a experiment performed on a prototype, the encoding time we count here includes several data format transfer and value calculation processes rather than preamble compression only. Table. \ref{tab:time}. shows the absolute time cost of file writing , encoding and the entire process loop. In this experiment, we choose the ratio of writing time as the normalization indicator. For each storage system, the throughput is limited as its inherent property, the higher this value is, the system spends less overhead on conversion.
+For this is an experiment performed on a prototype, the encoding time we count here includes several data format transfer and value calculation processes rather than preamble compression only. Table. \ref{tab:time}. shows the absolute time cost of file writing, encoding, and the entire process loop. In this experiment, we choose the ratio of writing time as the normalization indicator. For each storage system, the throughput is limited as its inherent property, the higher this value is, the system spends less overhead on conversion.
 
-\paragraph{Data Normalization} The sample data used in Fig. \ref{fig:ratiofull}. is collected among all the compaction information while performing the workload. to observer the results more intuitively, these data points are normalized into 200 equal parts according to the compaction process sequences. 
+\paragraph{Data Normalization} The sample data used in Fig. \ref{fig:ratiofull}. is collected among all the compaction information while performing the workload. To observe the results more intuitively, these data points are normalized into 200 equal parts according to the compaction process sequences. 
 
-\paragraph{Numeric Analysis on Time Overhead} From the result in Table. \ref{tab:time}., we can conclude that JigsawDB reduces 28.1\% of the overall execution time comparing to the original LevelDB; and is 13.2\% faster than write hierarchically on NVM. As for the effect of this united format, JigsawDB saves 22.03\% of the time while hierarchy methods saves only 17.19\% by using NVM. This proves that JigsawDB can benefits more from NVM. At last, due to the fast sequential performance of disks and limited workload size, the benefits of NVM + Disk hybrid architecture doesn't gain very obvious improvement, this means when data size grows big enough, the performance of JigsawDB can be even better. 
+\paragraph{Numeric Analysis on Time Overhead} From the result in Table. \ref{tab:time}., we can conclude that JigsawDB reduces 28.1\% of the overall execution time compared to the original LevelDB; and is 13.2\% faster than write hierarchically on NVM. As for the effect of this united format, JigsawDB saves 22.03\% of the time while hierarchy methods save only 17.19\% by using NVM. The fact that saving more time by utilizing NVM proves that JigsawDB can benefits more from NVM. At last, due to the fast sequential performance of disks and limited workload size, the benefits of NVM + Disk hybrid architecture does not gain pronounced improvement, this means when data size grows big enough, the performance of JigsawDB can be even better. 
 
 \paragraph{Result Analysis After Normalization} 
 
-From the normalization result, we can find out a interesting fact: for most cases (excepts applying hybrid storage on LevelDB hierarchically) the first quarter of curves (as shown in Fig.  \ref{fig:ratiofirst50}.) fluctuate significantly, but then become stabilized and remain stable for a considerable period of time(as shown in Fig. \ref{fig:ratiolast170}. However, applying hybrid storage structures to LevelDB by extending its memory component can provide a much smoother performance. The reason of this behavior is simple, at the early stage of lsm-based system, the size of a SST file is smaller, which means there are less entires stored in one single SST file; in addition, with the entires being aggregated, the keys' value space is becoming dense gradually, and the complexity of finding shared data also growth. 
+From the normalization result, we can find out an interesting fact: for most cases (excepts applying hybrid storage on LevelDB hierarchically) the first quarter of curves (as shown in Fig.  \ref{fig:ratiofirst50}.) fluctuate significantly, but then become stabilized and remain stable for a considerable period of time(as shown in Fig. \ref{fig:ratiolast170}. However, applying hybrid storage structures to LevelDB by extending its memory component can provide much smoother performance. The reason for this behavior is simple, at the early stage of lsm-based system, the size of a single SST file is smaller, which means there are fewer entries stored in one single SST file; in addition, with the entires being aggregated, the keys' value space is becoming dense gradually, and the complexity of finding shared data also growth. 
 
 
-
-\section{Conclusion and Work-in-progress}
-In this paper we introduces the JigsawDB, a novel lsm-based system uses a united format for DRAM, NVM and disk storage. We implement the prototype of it and evaluate this prototype to validate our design purples of reduce serialization overhead. From the experiment Jigsaw proves this united format can save the cost of serialization and de-serialization, improve the total performance against original SST files, benefit more among NVM's high throughput read and write features than naively deploy single component upon NVM. But there are still many improvements we are working on.
+\section{Discussion and Work-in-progress}
+In this paper we introduce the JigsawDB, a novel lsm-based system uses a united format for DRAM, NVM, and disk storage. We implement the prototype of it and evaluate this prototype to validate our design purples to reduce serialization overhead. From the experiment, Jigsaw proves this united format can save the cost of serialization and de-serialization, improve the total performance against original SST files, benefit more among NVM's high throughput read and write features than naively deploy single component upon NVM. But there are still many improvements we can provide.
 
 \paragraph{In-place Update Strategy}
-Just as the proposal of Novelsm\cite{kannan2018redesigning} suggests, NVM's byte addressing ability can benefit much in reducing space amplification for cutting off extra overhead of appending record produced in updating. Just as mentioned in section \ref{sec:format_introduction}, records can be directly addressed inside NVM, and since entires are stored in a compacted, solid data block, traditional punch-out strategy may leave lots of sporadic memory fragments. We are working on applying relaxation algorithm to provide in-place update and ensure won't introduce more calculating or serialization overhead.
+Just as the proposal of Novelsm\cite{kannan2018redesigning} suggests, NVM's byte addressing ability can benefit much in reducing space amplification for cutting off extra overhead of appending record produced in updating. Just as mentioned in section \ref{sec:format_introduction}, entries can be directly addressed inside NVM, and since entries are stored in a compacted, solid data block, the traditional punch-out strategy may leave lots of sporadic memory fragments. We are working on applying a relaxation algorithm to provide in-place update and ensure won't introduce more calculating or serialization overhead.
 
 \paragraph{Control the Write Pause}
-Another extreme impact that compaction may bring is \textit{write pause}, which is caused by sudden increment of disk usage, exhausted the bandwidth of the platform. BLSM uses the gear scheduler to reduce the impact of write pause, and inspired by this, we are working on a pre-load protocol to take benefits of united format, which can distribute the pressure of the process into the NVM component to reduce the sudden increasing throughput.
-
-
+Another extreme impact that compaction may bring is \textit{write pause}, which is caused by sudden increment of disk usage, exhausted the bandwidth of the platform. BLSM uses the gear scheduler to reduce the impact of write pause; we are inspired by this to apply a pre-load protocol to take benefits of united format, which can distribute the pressure of the process into the NVM component to reduce the sudden increasing throughput.
 %-------------------------------------------------------------------------------
 \bibliographystyle{plain}
 \bibliography{main}
